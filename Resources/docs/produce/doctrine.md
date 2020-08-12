@@ -1,5 +1,11 @@
 # Store Doctrine
 
+## Installation
+
+```bash
+composer require 3slab/vdm-library-doctrine-odm-transport-bundle
+```
+
 ## Configuration reference
 
 There are two parts ton configure: the transport, and Doctrine's behaviour.
