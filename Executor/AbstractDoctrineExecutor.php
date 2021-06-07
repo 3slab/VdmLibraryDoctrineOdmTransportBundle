@@ -38,31 +38,48 @@ abstract class AbstractDoctrineExecutor
      */
     protected $repositories = [];
 
-    /** 
-     * @var ObjectManager $objectManager
-    */
-    protected $objectManager;
+    /**
+     * @var string
+     */
+    protected $defaultEntity;
 
-    /** 
+    /**
+     * @var ObjectManager $manager
+     */
+    protected $manager;
+
+    /**
      * @var LoggerInterface $logger
-    */
+     */
     protected $logger;
 
-    /** 
+    /**
      * @var SerializerInterface $serializer
-    */
+     */
     protected $serializer;
 
-    abstract public function execute(Message $entity): void;
+    /**
+     * @param Message $message
+     */
+    abstract public function execute(Message $message): void;
 
+    /**
+     * @return ObjectManager
+     */
     public function getManager(): ObjectManager
     {
         return $this->manager;
     }
 
-    public function setManager(ObjectManager $manager)
+    /**
+     * @param ObjectManager $manager
+     * @return AbstractDoctrineExecutor
+     */
+    public function setManager(ObjectManager $manager): self
     {
         $this->manager = $manager;
+
+        return $this;
     }
 
     /**
@@ -132,6 +149,25 @@ abstract class AbstractDoctrineExecutor
     public function getFilters(string $key): array
     {
         return $this->filters[$key];
+    }
+
+    /**
+     * @param string $className
+     * @return $this
+     */
+    public function setDefaultEntity(string $className): self
+    {
+        $this->defaultEntity = $className;
+
+        return $this;
+    }
+
+    /**
+     * @return string
+     */
+    public function getDefaultEntity(): string
+    {
+        return $this->defaultEntity;
     }
 
     /**

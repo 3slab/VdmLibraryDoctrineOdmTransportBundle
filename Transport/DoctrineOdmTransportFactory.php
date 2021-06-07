@@ -9,17 +9,18 @@
 namespace Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Transport;
 
 use Doctrine\Persistence\ObjectManager;
-use Doctrine\Bundle\MongoDBBundle\ManagerRegistry;
+use Doctrine\Persistence\ManagerRegistry;
 use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 use Symfony\Component\Messenger\Transport\Serialization\SerializerInterface;
 use Symfony\Component\Messenger\Transport\TransportFactoryInterface;
 use Symfony\Component\Messenger\Transport\TransportInterface;
 use Symfony\Component\Serializer\SerializerInterface as SymfonySerializer;
+use Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Exception\InvalidIdentifiersCountException;
 use Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Exception\UndefinedEntityException;
-use Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Executor\AbstractDoctrineExecutor;
+use Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Exception\UnreadableEntityPropertyException;
 use Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Executor\DoctrineExecutorConfigurator;
-use Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Transport\DoctrineSenderFactory;
-use Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Transport\DoctrineTransport;
+use Vdm\Bundle\LibraryDoctrineOdmTransportBundle\Executor\DoctrineExecutorRegistry;
 
 class DoctrineOdmTransportFactory implements TransportFactoryInterface
 {
@@ -37,52 +38,71 @@ class DoctrineOdmTransportFactory implements TransportFactoryInterface
     protected $doctrine;
 
     /**
-     * @var AbstractDoctrineExecutor $executor
+     * @var DoctrineExecutorRegistry
      */
-    protected $executor;
+    protected $doctrineExecutorRegistry;
 
     /**
-     * @param LoggerInterface          $logger
-     * @param ManagerRegistry          $doctrine
-     * @param AbstractDoctrineExecutor $executor
-     * @param SymfonySerializer        $serializer
+     * @var SymfonySerializer
+     */
+    protected $serializer;
+
+    /**
+     * @param ManagerRegistry $doctrine
+     * @param DoctrineExecutorRegistry $doctrineExecutorRegistry
+     * @param SymfonySerializer $serializer
+     * @param LoggerInterface|null $vdmLogger
      */
     public function __construct(
-        LoggerInterface $logger,
         ManagerRegistry $doctrine,
-        AbstractDoctrineExecutor $executor,
-        SymfonySerializer $serializer
+        DoctrineExecutorRegistry $doctrineExecutorRegistry,
+        SymfonySerializer $serializer,
+        LoggerInterface $vdmLogger = null
     ) {
-        $this->logger     = $logger;
-        $this->doctrine   = $doctrine;
-        $this->executor   = $executor;
+        $this->doctrine = $doctrine;
+        $this->doctrineExecutorRegistry = $doctrineExecutorRegistry;
         $this->serializer = $serializer;
+        $this->logger = $vdmLogger ?? new NullLogger();
     }
 
     /**
      * Creates DoctrineTransport
-     * @param  string              $dsn
-     * @param  array               $options
-     * @param  SerializerInterface $serializer
+     * @param string $dsn
+     * @param array $options
+     * @param SerializerInterface $serializer
      *
      * @return TransportInterface
+     * @throws UndefinedEntityException
+     * @throws \ReflectionException
+     * @throws InvalidIdentifiersCountException
+     * @throws UnreadableEntityPropertyException
      */
     public function createTransport(string $dsn, array $options, SerializerInterface $serializer): TransportInterface
     {
         if (empty($options['entities'])) {
-            $errorMessage = sprintf('%s requires that you define at least one entity value in the transport\'s options.', __CLASS__);
+            $errorMessage = sprintf(
+                '%s requires that you define at least one entity value in the transport\'s options.',
+                __CLASS__
+            );
             throw new UndefinedEntityException($errorMessage);
         }
 
         unset($options['transport_name']);
 
-        $manager      = $this->getManager($dsn);
+        $manager = $this->getManager($dsn);
 
-        $configurator = new DoctrineExecutorConfigurator($manager, $this->logger, $this->serializer, $options);
-        $configurator->configure($this->executor);
+        $executor = $this->doctrineExecutorRegistry->getDefault();
+        if (isset($options['doctrine_executor'])) {
+            $executor = $this->doctrineExecutorRegistry->get($options['doctrine_executor']);
+        }
 
-        $doctrineSenderFactory = new DoctrineSenderFactory($this->executor, $this->logger);
-        $doctrineSender        = $doctrineSenderFactory->createDoctrineSender();
+        $this->logger->debug(sprintf('Doctrine executor loaded is an instance of "%s"', get_class($executor)));
+
+        $configurator = new DoctrineExecutorConfigurator($manager, $this->serializer, $options, $this->logger);
+        $configurator->configure($executor);
+
+        $doctrineSenderFactory = new DoctrineSenderFactory($executor);
+        $doctrineSender = $doctrineSenderFactory->createDoctrineSender();
 
         return new DoctrineTransport($doctrineSender, $this->logger);
     }
@@ -103,7 +123,7 @@ class DoctrineOdmTransportFactory implements TransportFactoryInterface
             // No need to put it in a variable now. If the connection doesn't exist, Doctrine will throw an exception
             $this->getManager($dsn);
 
-            // If we passe the if statement, and getManager(), we're good. 
+            // If we passe the if statement, and getManager(), we're good.
             return true;
         }
 
@@ -116,14 +136,12 @@ class DoctrineOdmTransportFactory implements TransportFactoryInterface
      *
      * @param  string $dsn
      *
-     * @throws InvalidArgumentException invalid connection
-     *
      * @return ObjectManager
      */
     protected function getManager(string $dsn): ObjectManager
     {
         preg_match(static::DSN_PATTERN_MATCHING, $dsn, $match);
-        
+
         $match['connection'] = $match['connection'] ?: 'default';
 
         $manager = $this->doctrine->getManager($match['connection']);

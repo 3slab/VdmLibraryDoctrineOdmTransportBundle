@@ -27,12 +27,12 @@ class VdmLibraryDoctrineOdmTransportExtension extends Extension
     public function load(array $configs, ContainerBuilder $container)
     {
         $container->registerForAutoconfiguration(AbstractDoctrineExecutor::class)
-            ->addTag('vdm_library.doctrine_executor')
+            ->addTag('vdm_library.doctrine_odm_executor')
         ;
 
         $loader = new YamlFileLoader(
             $container,
-            new FileLocator(__DIR__.'/../Resources/config')
+            new FileLocator(__DIR__ . '/../Resources/config')
         );
         $loader->load('services.yaml');
     }
